@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flame of Sacrifice</title>
+<style>
+body { text-align:center; background:#000; color:#fff; font-family:sans-serif; }
+canvas { display:block; margin:0 auto; border:2px solid #fff; background: #87ceeb; }
+#overlay {
+    position:absolute; top:0; left:0; width:100%; height:100%;
+    display:none; justify-content:center; align-items:center; flex-direction:column;
+    background: rgba(0,0,0,0.85); color:#fff; font-size:32px;
+}
+#overlay button { font-size:24px; padding:10px 20px; margin-top:20px; cursor:pointer; }
+#instructions { margin-top:20px; font-size:18px; }
+</style>
+</head>
+<body>
+<h1>Flame of Sacrifice</h1>
+<canvas id="game" width="800" height="600"></canvas>
+<div id="overlay">
+    <div id="overlayText"></div>
+    <button id="overlayBtn"></button>
+</div>
+<div id="instructions">
+<strong>Instructions:</strong> Arrow keys = Move, Arrow Up = Jump, S = Light Torch
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const overlay = document.getElementById('overlay');
+const overlayText = document.getElementById('overlayText');
+const overlayBtn = document.getElementById('overlayBtn');
+
+let keys = {};
+document.addEventListener('keydown', e=>keys[e.key]=true);
+document.addEventListener('keyup', e=>keys[e.key]=false);
+
+// Player
+let player = {x:50, y:500, w:40, h:50, vy:0, onGround:false};
+let HP = 5;
+let lostHP = 0;
+let gameRunning = true;
+
+// Levels
+const levels = [
+    {numTorches:3, numEnemies:1, torches:[], enemies:[], door:null},
+    {numTorches:5, numEnemies:3, torches:[], enemies:[], door:null},
+    {numTorches:7, numEnemies:7, torches:[], enemies:[], door:null}
+];
+let currentLevel = 0;
+const groundY = 550;
+
+// Initialize Level
+function setupLevel(levelIndex){
+    const level = levels[levelIndex];
+    level.torches = [];
+    level.enemies = [];
+    const spacing = canvas.width / (level.numTorches + 1);
+
+    // Torches
+    for(let i=0;i<level.numTorches;i++){
+        level.torches.push({x:spacing*(i+1)-15, y:groundY-40, w:30, h:40, lit:false});
+    }
+
+    // Door
+    level.door = {x:canvas.width-70, y:groundY-60, w:50, h:60, open:false};
+
+    // Enemies
+    for(let i=0;i<level.numEnemies;i++){
+        let ex = Math.random()*(canvas.width-50);
+        let ey = groundY-50;
+        let dir = Math.random()<0.5?1:-1;
+        level.enemies.push({x:ex, y:ey, w:40, h:50, dir:dir, speed:2});
+    }
+}
+
+// Reset player
+function resetPlayer(){
+    player.x = 50;
+    player.y = groundY - player.h;
+    player.vy = 0;
+    player.onGround = true;
+}
+
+// Collision
+function collide(a,b){
+    return a.x < b.x + b.w &&
+           a.x + a.w > b.x &&
+           a.y < b.y + b.h &&
+           a.y + a.h > b.y;
+}
+
+// Draw player as warrior
+function drawPlayer(){
+    // body
+    ctx.fillStyle='red';
+    ctx.fillRect(player.x, player.y+10, player.w, player.h-10);
+    // head
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y+10);
+    ctx.lineTo(player.x + player.w/2, player.y);
+    ctx.lineTo(player.x + player.w, player.y+10);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// Draw enemy as knight
+function drawEnemy(e){
+    ctx.fillStyle='blue';
+    ctx.fillRect(e.x, e.y+15, e.w, e.h-15);
+    ctx.beginPath();
+    ctx.arc(e.x+e.w/2, e.y+10, 10, 0, Math.PI*2);
+    ctx.fill();
+}
+
+// Draw torch
+function drawTorch(t){
+    // stick
+    ctx.fillStyle='#8b4513';
+    ctx.fillRect(t.x + t.w/2 - 5, t.y+10, 10, t.h-10);
+    // flame
+    ctx.fillStyle = t.lit ? '#ffff00' : '#ffa500';
+    ctx.beginPath();
+    ctx.moveTo(t.x+t.w/2, t.y);
+    ctx.lineTo(t.x+t.w/2-10, t.y+20);
+    ctx.lineTo(t.x+t.w/2+10, t.y+20);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// Draw door
+function drawDoor(d){
+    ctx.fillStyle='green';
+    // rectangle
+    ctx.fillRect(d.x, d.y+20, d.w, d.h-20);
+    // arch top
+    ctx.beginPath();
+    ctx.moveTo(d.x, d.y+20);
+    ctx.quadraticCurveTo(d.x+d.w/2, d.y-10, d.x+d.w, d.y+20);
+    ctx.closePath();
+    ctx.fill();
+}
+
+// Game Loop
+function gameLoop(){
+    if(!gameRunning) return;
+
+    // sky
+    ctx.fillStyle='#87ceeb';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // mountains
+    ctx.fillStyle='#556b2f';
+    ctx.beginPath();
+    ctx.moveTo(0,groundY);
+    ctx.lineTo(150,300);
+    ctx.lineTo(300,groundY);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(200,groundY);
+    ctx.lineTo(400,250);
+    ctx.lineTo(600,groundY);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(500,groundY);
+    ctx.lineTo(650,300);
+    ctx.lineTo(800,groundY);
+    ctx.closePath();
+    ctx.fill();
+
+    // ground
+    ctx.fillStyle='#654321';
+    ctx.fillRect(0,groundY,canvas.width,canvas.height-groundY);
+
+    const level = levels[currentLevel];
+
+    // torches
+    level.torches.forEach(drawTorch);
+
+    // enemies
+    level.enemies.forEach(e=>{
+        drawEnemy(e);
+        e.x += e.speed*e.dir;
+        if(e.x<=0 || e.x+e.w>=canvas.width) e.dir*=-1;
+
+        if(collide(player,e)){
+            lostHP++;
+            resetPlayer();
+        }
+    });
+
+    // door
+    if(level.torches.every(t=>t.lit)){
+        level.door.open=true;
+        drawDoor(level.door);
+    }
+
+    // player
+    drawPlayer();
+
+    // movement
+    if(keys['ArrowLeft']) player.x -=5;
+    if(keys['ArrowRight']) player.x +=5;
+    if(keys['ArrowUp'] && player.onGround){ player.vy=-12; player.onGround=false; }
+
+    // gravity
+    player.vy +=0.5;
+    player.y += player.vy;
+    if(player.y + player.h >= groundY){ player.y = groundY - player.h; player.vy=0; player.onGround=true; }
+
+    // light torches
+    if(keys['s']){
+        level.torches.forEach(t=>{
+            if(!t.lit && collide(player,t)) t.lit=true;
+        });
+    }
+
+    // HP
+    ctx.fillStyle='red';
+    ctx.font='24px Arial';
+    ctx.fillText("HP: "+(HP-lostHP),10,30);
+
+    // Game over
+    if(lostHP >= HP){
+        gameRunning=false;
+        overlayText.innerText="Game Over!";
+        overlayBtn.innerText="New Game";
+        overlay.style.display='flex';
+        overlayBtn.onclick=()=>{
+            currentLevel=0;
+            lostHP=0;
+            setupLevel(currentLevel);
+            resetPlayer();
+            overlay.style.display='none';
+            gameRunning=true;
+            gameLoop();
+        };
+        return;
+    }
+
+    // Door collision
+    if(level.door.open && collide(player,level.door)){
+        gameRunning=false;
+        if(currentLevel < levels.length-1){
+            overlayText.innerText="Level Complete!";
+            overlayBtn.innerText="Next Level";
+            overlay.style.display='flex';
+            overlayBtn.onclick=()=>{
+                currentLevel++;
+                setupLevel(currentLevel);
+                resetPlayer();
+                overlay.style.display='none';
+                gameRunning=true;
+                gameLoop();
+            };
+        } else {
+            overlayText.innerText="Congratulations! You are the sanity!";
+            overlayBtn.innerText="Reset";
+            overlay.style.display='flex';
+            overlayBtn.onclick=()=>{
+                currentLevel=0;
+                lostHP=0;
+                setupLevel(currentLevel);
+                resetPlayer();
+                overlay.style.display='none';
+                gameRunning=true;
+                gameLoop();
+            };
+        }
+        return;
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+// Start first level
+setupLevel(currentLevel);
+resetPlayer();
+gameLoop();
+</script>
+</body>
+</html>
